@@ -3,7 +3,7 @@ import { Application } from "./application";
 import "../css/index.css";
 
 // wrap everything inside a function scope and invoke it (IIFE, a.k.a. SEAF)
-(() => {
+window.app = (() => {
   const containers = document.getElementsByClassName("canvas-container");
   let app = null;
   if (containers.length === 0) {
@@ -17,6 +17,7 @@ import "../css/index.css";
     alert("Too many <div class='canvas-container' /> elements in your HTML");
   }
   console.log("Application instance", app);
+  return app
 })();
 
 // Note: neither app nor containers are defined here because they were available

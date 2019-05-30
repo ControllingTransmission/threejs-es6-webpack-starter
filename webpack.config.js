@@ -11,7 +11,7 @@ const HtmlWebpackPlugin = require("html-webpack-plugin");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 const PacktrackerPlugin = require("@packtracker/webpack-plugin");
 
-const APP_NAME = "Three.js ES6 Webpack 4 Project Starter";
+const APP_NAME = "WMD";
 
 const rules = [
   {

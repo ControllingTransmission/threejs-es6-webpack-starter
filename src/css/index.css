@@ -7,6 +7,7 @@ body {
   margin: 0;
   overflow: hidden;
   width: 100vw;
+  cursor: none;
 }
 
 li {

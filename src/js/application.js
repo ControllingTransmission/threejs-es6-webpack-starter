@@ -8,8 +8,15 @@ import * as Detector from "../js/vendor/Detector";
 import * as DAT from "../js/vendor/dat.gui.min";
 import * as checkerboard from "../textures/checkerboard.jpg";
 import * as star from "../textures/star.png";
-import * as vertexShader from "../glsl/vertexShader.glsl";
-import * as fragmentShader from "../glsl/fragmentShader.glsl";
+import * as vertexSkybox from "../glsl/skybox/vertexShader.glsl";
+import * as fragmentSkybox from "../glsl/skybox/fragmentShader.glsl";
+import * as vertexNoOp from "../glsl/noop/vertexShader.glsl";
+import * as fragmentNoOp from "../glsl/noop/fragmentShader.glsl";
+import * as vertexFade from "../glsl/deform/vertexShader.glsl";
+import * as fragmentFade from "../glsl/deform/fragmentShader.glsl";
+
+import { AnimationEffect } from './effects'
+
 
 const CAMERA_NAME = "Perspective Camera";
 const DIRECTIONAL_LIGHT_NAME = "Directional Light";
@@ -23,7 +30,6 @@ export class Application {
     } else {
       this.createContainer();
     }
-    this.createTooltip();
     this.showHelpers = opts.showHelpers ? true : false;
     this.textureLoader = new THREE.TextureLoader();
 
@@ -45,44 +51,46 @@ export class Application {
     this.handleClick = this.handleClick.bind(this);
     this.handleMouseMove = this.handleMouseMove.bind(this);
     this.handleResize = this.handleResize.bind(this);
-    this.showTooltip = this.showTooltip.bind(this);
-    this.hideTooltip = this.hideTooltip.bind(this);
     bindKeys(this);
   }
 
   init() {
     window.addEventListener("resize", this.handleResize);
+    this.setupClock();
     this.setupScene();
     this.setupRenderer();
     this.setupCamera();
     const interaction = new Interaction(this.renderer, this.scene, this.camera);
     this.setupLights();
-    if (this.showHelpers) {
-      this.setupHelpers();
-    }
     this.setupRay();
     this.setupControls();
-    this.setupGUI();
+    this.setupUniforms();
 
-    this.addFloor(100, 100);
-    this.addCube(20);
+    // this.setupGUI();
+
+    // this.addFloor(100, 100);
+    this.addSkybox(1500);
     this.addCustomMesh();
 
-    const particleSpecs = { spread: { x: 50, y: 100, z: 50 } };
-    this.addParticleSystem(300, 5, particleSpecs);
+    // const particleSpecs = { spread: { x: 50, y: 100, z: 50 } };
+    // this.addParticleSystem(300, 5, particleSpecs);
 
-    const boxSpecs = {
-      depth: 20,
-      height: 10,
-      spread: { x: 20, y: 20, z: 50 },
-      width: 5,
-    };
-    this.addGroupObject(10, boxSpecs);
+    // const boxSpecs = {
+    //   depth: 20,
+    //   height: 10,
+    //   spread: { x: 100, y: 100, z: 50 },
+    //   width: 5,
+    // };
+    // this.addGroupObject(20, boxSpecs);
   }
 
   render() {
+    this.updateUniforms();
     this.controls.update();
-    this.updateCustomMesh();
+    this.updateSkybox();
+    this.updateGroupObject();
+    // this.updateCustomMesh();
+    // this.updateCube();
     this.renderer.render(this.scene, this.camera);
     // when render is invoked via requestAnimationFrame(this.render) there is
     // no 'this', so either we bind it explicitly or use an es6 arrow function.
@@ -103,18 +111,6 @@ export class Application {
     div.setAttribute("class", "canvas-container");
     app.appendChild(div);
     this.container = div;
-  }
-
-  createTooltip() {
-    const elements = document.getElementsByClassName("app");
-    if (elements.length !== 1) {
-      alert("You need to have exactly ONE <div class='app' /> in your HTML");
-    }
-    const app = elements[0];
-    const div = document.createElement("div");
-    div.setAttribute("class", "tooltip");
-    app.appendChild(div);
-    this.tooltip = div;
   }
 
   handleClick(event) {
@@ -145,17 +141,8 @@ export class Application {
     this.renderer.setSize(clientWidth, clientHeight);
   }
 
-  showTooltip(interactionEvent) {
-    const { name, uuid, type } = interactionEvent.target;
-    const { x, y } = interactionEvent.data.global;
-    const [xScreen, yScreen] = this.getScreenCoordinates(x, y);
-    this.tooltip.innerHTML = `<h4>${name} (${type})</h4><br><span>UUID: ${uuid}</span><br><span><em>Click to cast a ray</em></span>`;
-    const style = `left: ${xScreen}px; top: ${yScreen}px; visibility: visible; opacity: 0.8`;
-    this.tooltip.style = style;
-  }
-
-  hideTooltip(interactionEvent) {
-    this.tooltip.style = "visibility: hidden";
+  setupClock() {
+    this.clock = new THREE.Clock();
   }
 
   /**
@@ -199,14 +186,14 @@ export class Application {
   }
 
   setupCamera() {
-    const fov = 75;
+    const fov = 40;
     const { clientWidth, clientHeight } = this.container;
     const aspect = clientWidth / clientHeight;
     const near = 0.1;
     const far = 10000;
     this.camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
     this.camera.name = CAMERA_NAME;
-    this.camera.position.set(100, 100, 100);
+    this.camera.position.set(0, 0, -150);
     this.camera.lookAt(this.scene.position);
   }
 
@@ -227,6 +214,107 @@ export class Application {
 
     const ambientLight = new THREE.AmbientLight(0xffaa55);
     this.scene.add(ambientLight);
+  }
+
+  setupUniforms() {
+    this.colors = [
+      [new THREE.Color(0xf5d4ff), new THREE.Color(0xce0fd6)],
+      [new THREE.Color(0x003fbc), new THREE.Color(0x00ffff)],
+      [new THREE.Color(0x880033), new THREE.Color(0xff00b3)],
+      [new THREE.Color(0xf35f77), new THREE.Color(0x461cd8)],
+      [new THREE.Color(0x9a0000), new THREE.Color(0x18b6ff)],
+      [new THREE.Color(0x3da176), new THREE.Color(0xedfd54)],
+    ]
+
+    this.centerObjectPalette = 0
+    this.centerObjectScale = new AnimationEffect({
+      name: 'centerObjectScale',
+      value: 1.0,
+      speed: 10,
+      minValue: 1.0,
+      maxValue: 1.5,
+    });
+    this.wiggleIntensityX = new AnimationEffect({
+      name: 'wiggleIntensityX',
+      value: 0.0,
+      speed: 10,
+      minValue: 0.0,
+      maxValue: 10.0,
+    });
+    this.wiggleIntensityY = new AnimationEffect({
+      name: 'wiggleIntensityY',
+      value: 0.0,
+      speed: 10,
+      minValue: 0.0,
+      maxValue: 10.0,
+    });
+    this.normalIntensity = new AnimationEffect({
+      name: 'normalIntensity',
+      value: 1.0,
+      speed: 10,
+      minValue: 1.0,
+      maxValue: 3.0,
+    });
+    this.skyboxPalette = 1
+    this.skyboxColorIntensity = new AnimationEffect({
+      name: 'normalIntensity',
+      value: 0.0,
+      speed: 10,
+      minValue: 0.0,
+      maxValue: 1.0,
+    });
+
+    // Define the shader uniforms
+    this.uniforms = {
+      u_time : {
+        type : "f",
+        value : 0.0
+      },
+      u_frame : {
+        type : "f",
+        value : 0.0
+      },
+      u_resolution : {
+        type : "v2",
+        value : new THREE.Vector2(window.innerWidth, window.innerHeight)
+            .multiplyScalar(window.devicePixelRatio)
+      },
+      u_mouse : {
+        type : "v2",
+        value : new THREE.Vector2(0.7 * window.innerWidth, window.innerHeight)
+            .multiplyScalar(window.devicePixelRatio)
+      },
+      u_texture : {
+        type : "t",
+        value : null
+      },
+      thickness: {
+        type: 'f',
+        value: 1.0
+      },
+      wiggleIntensityX: { type: 'f', value: this.wiggleIntensityX.value },
+      wiggleIntensityY: { type: 'f', value: this.wiggleIntensityY.value },
+      normalIntensity: { type: 'f', value: this.normalIntensity.value },
+      startColor: { value: this.colors[this.centerObjectPalette][0] },
+      endColor: { value: this.colors[this.centerObjectPalette][0] },
+      skyboxStartColor: { value: this.colors[this.skyboxPalette][0] },
+      skyboxEndColor: { value: this.colors[this.skyboxPalette][1]  },
+      skyboxColorIntensity: { type: 'f', value: this.skyboxColorIntensity.value },
+    };
+  }
+
+  updateUniforms() {
+    const time = this.clock.getElapsedTime();
+    this.uniforms.u_time.value = time;
+
+    this.uniforms.wiggleIntensityX.value = this.wiggleIntensityX.update();
+    this.uniforms.wiggleIntensityY.value = this.wiggleIntensityY.update();
+    this.uniforms.normalIntensity.value = this.normalIntensity.update();
+    this.uniforms.skyboxColorIntensity.value = this.skyboxColorIntensity.update();
+
+    this.scene.getObjectByName(CUSTOM_MESH_NAME).scale.x = this.centerObjectScale.update();
+    this.scene.getObjectByName(CUSTOM_MESH_NAME).scale.y = this.centerObjectScale.update();
+    this.scene.getObjectByName(CUSTOM_MESH_NAME).scale.z = this.centerObjectScale.update();
   }
 
   setupHelpers() {
@@ -266,46 +354,12 @@ export class Application {
     this.raycaster = new THREE.Raycaster();
   }
 
-  /**
-   * Add a floor object to the scene.
-   * Note: Three.js's TextureLoader does not support progress events.
-   * @see https://threejs.org/docs/#api/en/loaders/TextureLoader
-   */
-  addFloor(width, height) {
-    const geometry = new THREE.PlaneGeometry(width, height, 1, 1);
-    const onLoad = texture => {
-      texture.wrapS = THREE.RepeatWrapping;
-      texture.wrapT = THREE.RepeatWrapping;
-      texture.repeat.set(4, 4);
-      const material = new THREE.MeshBasicMaterial({
-        map: texture,
-        side: THREE.DoubleSide,
-      });
-      const floor = new THREE.Mesh(geometry, material);
-      floor.name = "Floor";
-      floor.position.y = -0.5;
-      floor.rotation.x = Math.PI / 2;
-      this.scene.add(floor);
-
-      floor.cursor = "pointer";
-      floor.on("mouseover", this.showTooltip);
-      floor.on("mouseout", this.hideTooltip);
-    };
-
-    const onProgress = undefined;
-
-    const onError = event => {
-      alert(`Impossible to load the texture ${checkerboard}`);
-    };
-    this.textureLoader.load(checkerboard, onLoad, onProgress, onError);
-  }
-
   setupControls() {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enabled = true;
     this.controls.maxDistance = 1500;
     this.controls.minDistance = 0;
-    this.controls.autoRotate = true;
+    this.controls.autoRotate = false;
   }
 
   setupGUI() {
@@ -332,17 +386,20 @@ export class Application {
    */
   addCustomMesh() {
     this.delta = 0;
-    const customUniforms = {
-      delta: { value: 0 },
-    };
 
     const material = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader,
-      uniforms: customUniforms,
+      vertexShader: vertexFade,
+      fragmentShader: fragmentFade,
+      uniforms: this.uniforms,
+      side : THREE.DoubleSide,
+            transparent : true,
+            extensions : {
+              derivatives : true
+            }
     });
 
-    const geometry = new THREE.SphereBufferGeometry(5, 32, 32);
+    const geometry = new THREE.SphereBufferGeometry(15, 100, 100);
+    // const geometry = new THREE.TetrahedronBufferGeometry(15, );
 
     this.vertexDisplacement = new Float32Array(
       geometry.attributes.position.count
@@ -358,7 +415,7 @@ export class Application {
 
     const customMesh = new THREE.Mesh(geometry, material);
     customMesh.name = CUSTOM_MESH_NAME;
-    customMesh.position.set(5, 5, 5);
+    customMesh.position.set(0, 0, 0);
     this.scene.add(customMesh);
   }
 
@@ -374,17 +431,51 @@ export class Application {
     customMesh.geometry.attributes.vertexDisplacement.needsUpdate = true;
   }
 
-  addCube(side) {
+  addSkybox(side) {
     const geometry = new THREE.CubeGeometry(side, side, side);
-    const material = new THREE.MeshLambertMaterial({ color: 0xfbbc05 });
+    // const material = new THREE.MeshLambertMaterial({ color: 0xfbbc05 });
+    const material = new THREE.ShaderMaterial({
+      vertexShader: vertexSkybox,
+      fragmentShader: fragmentSkybox,
+      uniforms: this.uniforms,
+      side: THREE.BackSide
+    });
     const cube = new THREE.Mesh(geometry, material);
-    cube.name = "Cube";
-    cube.position.set(0, side / 2, 0);
+    cube.name = "Skybox";
+    cube.position.set(0, side / 4, 0);
+    cube.rotation.speed = {
+      x: new AnimationEffect({
+        name: 'skyboxSpeedX',
+        value: 0.0,
+        speed: 10,
+        minValue: 0.0,
+        maxValue: 0.1,
+      }),
+      y: new AnimationEffect({
+        name: 'skyboxSpeedY',
+        value: 0.0,
+        speed: 10,
+        minValue: 0.0,
+        maxValue: 0.1,
+      }),
+      z: new AnimationEffect({
+        name: 'skyboxSpeedY',
+        value: 0.0,
+        speed: 10,
+        minValue: 0.0,
+        maxValue: 0.1,
+      })
+    }
     this.scene.add(cube);
 
     cube.cursor = "pointer";
-    cube.on("mouseover", this.showTooltip);
-    cube.on("mouseout", this.hideTooltip);
+  }
+
+  updateSkybox() {
+    const skybox = this.scene.getObjectByName('Skybox')
+    skybox.rotation.x += skybox.rotation.speed.x.update()
+    skybox.rotation.y += skybox.rotation.speed.y.update()
+    skybox.rotation.z += skybox.rotation.speed.z.update()
   }
 
   /**
@@ -416,8 +507,6 @@ export class Application {
       this.scene.add(particleSystem);
 
       particleSystem.cursor = "pointer";
-      particleSystem.on("mouseover", this.showTooltip);
-      particleSystem.on("mouseout", this.hideTooltip);
     };
 
     const onProgress = undefined;
@@ -432,24 +521,81 @@ export class Application {
   /**
    * Add a Three.js Group object to the scene.
    */
-  addGroupObject(numBoxes, boxSpecs) {
+  addGroupObject(numBoxes, boxSpecs, behavior) {
     const group = new THREE.Group();
     group.name = "Group of Boxes";
+    group.behavior = behavior;
     const { depth, height, spread, width } = boxSpecs;
-    const geometry = new THREE.BoxGeometry(width, height, depth);
+    let groupGeometries = [
+      new THREE.CylinderGeometry(width, 0.0, depth),
+      new THREE.BoxGeometry(width, height, depth),
+    ]
 
-    const meshes = Array(numBoxes)
-      .fill({ geometry, spread })
-      .map(makeMesh);
+    function randomGeometry(type) {
+      let geometry = null;
+      const index = Math.floor(Math.random() * groupGeometries.length)
+      console.log(index);
+      // const geometry = new THREE.BoxGeometry(width, height, depth);
+      switch (type) {
+        case 0:
+        default:
+          return groupGeometries[index];
+        case 1:
+          return groupGeometries[0];
+      }
+    }
+
+    // const meshes = Array(numBoxes)
+    // for (var i = meshes.length - 1; i >= 0; i--) {
+    //   meshes[i] = { geometry: randomGeometry(), spread: spread }
+    // }
+    let meshes = [];
+    for (var i = 0; i < numBoxes; i++) {
+      meshes.push({
+        geometry: randomGeometry(boxSpecs.type),
+        spread: spread
+      })
+    }
+    console.log(meshes);
+    meshes = meshes.map(makeMesh);
+    console.log(meshes);
+
     for (const mesh of meshes) {
+      mesh.velocity = new THREE.Vector3(Math.random(), Math.random(), Math.random())
       group.add(mesh);
     }
-    group.position.set(50, 20, 50);
+    group.position.set(0, 0, 50);
     this.scene.add(group);
 
     group.cursor = "pointer";
-    group.on("mouseover", this.showTooltip);
-    group.on("mouseout", this.hideTooltip);
+  }
+
+  updateGroupObject() {
+    console.log('updateGroupObject');
+    let group = this.scene.getObjectByName("Group of Boxes")
+    if (group == undefined) { return; }
+    group.children.forEach((child) => {
+      switch (group.behavior) {
+        case 0:
+        default:
+          // child.update()
+          child.rotateX(0.05)
+          // child.translateY(-2)
+          child.position.x += child.velocity.x
+          child.position.y += child.velocity.y
+          child.position.z += child.velocity.z
+          let max = 100
+          if (Math.abs(child.position.x) > max) { child.velocity.x *= -1}
+          if (Math.abs(child.position.y) > max) { child.velocity.y *= -1}
+          if (Math.abs(child.position.z) > max) { child.velocity.z *= -1}
+          break;
+        case 1:
+          child.rotateX(0.05)
+          child.translateY(-2)
+          break;
+
+      }
+    })
   }
 
   /**
